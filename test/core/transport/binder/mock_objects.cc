@@ -17,6 +17,8 @@
 #include <memory>
 
 #include "absl/memory/memory.h"
+#include "src/core/lib/iomgr/error.h"
+#include "src/core/lib/iomgr/closure.h"
 
 namespace grpc_binder {
 
@@ -50,6 +52,31 @@ MockBinder::MockBinder() {
             return std::make_unique<MockTransactionReceiver>(
                 cb, BinderTransportTxCode::SETUP_TRANSPORT, &mock_output_);
           });
+}
+
+void CallTransactCallback(void* args, grpc_error_handle) {
+  TransactCbArgs* s = static_cast<TransactCbArgs*>(args);
+  s->transact_cb(static_cast<transaction_code_t>(s->code), s->output, /*uid=*/0).IgnoreError();
+}
+
+MockTransactionReceiver::MockTransactionReceiver(OnTransactCb transact_cb,
+                                  BinderTransportTxCode code,
+                                  MockReadableParcel* output) :
+      combiner_(grpc_combiner_create()) {
+  if (code == BinderTransportTxCode::SETUP_TRANSPORT) {
+    EXPECT_CALL(*output, ReadInt32).WillOnce([](int32_t* version) {
+      *version = 1;
+      return absl::OkStatus();
+    });
+  }
+
+  args_ = new TransactCbArgs();
+  args_->transact_cb = transact_cb;
+  args_->code = code;
+  args_->output = output;
+  combiner_->Run(
+    GRPC_CLOSURE_CREATE(CallTransactCallback, args_, nullptr),
+    absl::OkStatus());
 }
 
 }  // namespace grpc_binder

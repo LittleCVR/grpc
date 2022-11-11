@@ -482,6 +482,9 @@ static void perform_stream_op_locked(void* stream_op,
                                 recv_initial_metadata_locked,
                                 &gbs->recv_initial_metadata_args, nullptr),
               absl::OkStatus());
+          gbt->combiner->Run(
+              GRPC_CLOSURE_CREATE([](void* arg, grpc_error_handle) {}, nullptr, nullptr),
+              absl::OkStatus());
         });
   }
   if (op->recv_message) {

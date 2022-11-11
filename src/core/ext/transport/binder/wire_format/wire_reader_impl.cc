@@ -81,19 +81,19 @@ WireReaderImpl::~WireReaderImpl() {
 std::shared_ptr<WireWriter> WireReaderImpl::SetupTransport(
     std::unique_ptr<Binder> binder) {
   if (!is_client_) {
-    SendSetupTransport(binder.get());
     {
       grpc_core::MutexLock lock(&mu_);
       connected_ = true;
+      SendSetupTransport(binder.get());
       wire_writer_ = std::make_shared<WireWriterImpl>(std::move(binder));
     }
     return wire_writer_;
   } else {
-    SendSetupTransport(binder.get());
-    auto other_end_binder = RecvSetupTransport();
     {
       grpc_core::MutexLock lock(&mu_);
       connected_ = true;
+      SendSetupTransport(binder.get());
+      auto other_end_binder = RecvSetupTransport();
       wire_writer_ =
           std::make_shared<WireWriterImpl>(std::move(other_end_binder));
     }

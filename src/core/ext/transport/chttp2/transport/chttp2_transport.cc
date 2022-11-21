@@ -55,6 +55,7 @@
 #include "src/core/ext/transport/chttp2/transport/frame_rst_stream.h"
 #include "src/core/ext/transport/chttp2/transport/hpack_encoder.h"
 #include "src/core/ext/transport/chttp2/transport/http2_settings.h"
+#include "src/core/ext/transport/chttp2/transport/http_trace.h"
 #include "src/core/ext/transport/chttp2/transport/internal.h"
 #include "src/core/ext/transport/chttp2/transport/stream_map.h"
 #include "src/core/ext/transport/chttp2/transport/varint.h"
@@ -127,7 +128,6 @@ static int g_default_max_pings_without_data = DEFAULT_MAX_PINGS_BETWEEN_DATA;
 static int g_default_max_ping_strikes = DEFAULT_MAX_PING_STRIKES;
 
 #define MAX_CLIENT_STREAM_ID 0x7fffffffu
-grpc_core::TraceFlag grpc_http_trace(false, "http");
 grpc_core::TraceFlag grpc_keepalive_trace(false, "http_keepalive");
 grpc_core::DebugOnlyTraceFlag grpc_trace_chttp2_refcount(false,
                                                          "chttp2_refcount");
@@ -985,14 +985,17 @@ void grpc_chttp2_add_incoming_goaway(grpc_chttp2_transport* t,
                                      uint32_t goaway_error,
                                      uint32_t last_stream_id,
                                      absl::string_view goaway_text) {
-  // Discard the error from a previous goaway frame (if any)
-  if (!t->goaway_error.ok()) {
-  }
   t->goaway_error = grpc_error_set_str(
       grpc_error_set_int(
-          grpc_error_set_int(GRPC_ERROR_CREATE("GOAWAY received"),
-                             grpc_core::StatusIntProperty::kHttp2Error,
-                             static_cast<intptr_t>(goaway_error)),
+          grpc_error_set_int(
+              grpc_core::StatusCreate(
+                  absl::StatusCode::kUnavailable,
+                  absl::StrFormat(
+                      "GOAWAY received; Error code: %u; Debug Text: %s",
+                      goaway_error, goaway_text),
+                  DEBUG_LOCATION, {}),
+              grpc_core::StatusIntProperty::kHttp2Error,
+              static_cast<intptr_t>(goaway_error)),
           grpc_core::StatusIntProperty::kRpcStatus, GRPC_STATUS_UNAVAILABLE),
       grpc_core::StatusStrProperty::kRawBytes, goaway_text);
 
@@ -1967,7 +1970,8 @@ void grpc_chttp2_fake_status(grpc_chttp2_transport* t, grpc_chttp2_stream* s,
   //   what we want - which is safe because we haven't told anyone
   //   about the metadata yet
   if (s->published_metadata[1] == GRPC_METADATA_NOT_PUBLISHED ||
-      s->recv_trailing_metadata_finished != nullptr) {
+      s->recv_trailing_metadata_finished != nullptr ||
+      !s->final_metadata_requested) {
     s->trailing_metadata_buffer.Set(grpc_core::GrpcStatusMetadata(), status);
     if (!message.empty()) {
       s->trailing_metadata_buffer.Set(
